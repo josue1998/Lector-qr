@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#075E54">
+<title>Escáner de números</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#eef2f3;color:#172026}
+header{background:#075E54;color:white;padding:18px 16px;text-align:center}
+h1{margin:0;font-size:24px}
+main{max-width:650px;margin:auto;padding:14px}
+.card{background:white;border-radius:16px;padding:14px;margin-bottom:14px;box-shadow:0 3px 12px #0002}
+#cameraBox{position:relative;background:#111;border-radius:14px;overflow:hidden;min-height:300px}
+video{width:100%;display:block;max-height:65vh;object-fit:cover}
+#scanLine{position:absolute;left:8%;right:8%;top:50%;height:3px;background:#25D366;box-shadow:0 0 10px #25D366;animation:scan 1.8s infinite}
+@keyframes scan{0%,100%{transform:translateY(-90px)}50%{transform:translateY(90px)}}
+.status{padding:10px;text-align:center;font-size:14px}
+button{border:0;border-radius:12px;padding:13px 16px;font-weight:bold;font-size:15px;cursor:pointer}
+.primary{background:#075E54;color:white}.green{background:#25D366;color:#073b2a}
+.gray{background:#e6eaec;color:#172026}
+.scan-button{width:100%;background:#25D366;color:#073b2a;font-size:18px;padding:16px;margin-top:8px;user-select:none;-webkit-user-select:none;touch-action:none}
+.scan-button.active{background:#ffb300;color:#222}
+.hint{text-align:center;margin:6px 0 0}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.row button{flex:1;min-width:130px}
+label{font-weight:bold;display:block;margin-bottom:7px}
+input{width:100%;padding:12px;border:1px solid #c8d0d4;border-radius:10px;font-size:16px}
+#numbers{margin:8px 0 0;padding:0;list-style:none}
+.number-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 4px;font-size:18px;border-bottom:1px solid #eee}
+.delete{flex:0 0 auto;min-width:40px;width:40px;height:40px;padding:0;border-radius:50%;background:#e53935;color:white;font-size:24px;line-height:40px}
+.small{font-size:13px;color:#5c686d}
+.success{color:#087f45;font-weight:bold}
+.warning{color:#a35b00}
+</style>
+</head>
+<body>
+<header><h1>📷 Escáner de números</h1></header>
+
+<main>
+<section class="card">
+  <div id="cameraBox">
+    <video id="video" autoplay muted playsinline></video>
+    <div id="scanLine"></div>
+  </div>
+  <div id="status" class="status">Pulsa “Iniciar cámara”.</div>
+  <div class="row">
+    <button class="primary" id="start">Iniciar cámara</button>
+    <button class="gray" id="stop">Detener</button>
+  </div>
+  <button class="scan-button" id="scanToggle">
+    🔎 PRESIONAR PARA ESCANEAR
+  </button>
+  <p class="small hint">Presiona el botón para iniciar o detener el escaneo automático.</p>
+</section>
+
+<section class="card">
+  <label>Números detectados</label>
+  <div id="numbers"><div class="small">Todavía no hay números.</div></div>
+  <div class="row">
+    <button class="gray" id="clear">Limpiar lista</button>
+    <button class="green" id="copy">Copiar números</button>
+  </div>
+</section>
+
+<section class="card">
+  <label for="phone">WhatsApp (opcional)</label>
+  <input id="phone" inputmode="tel" placeholder="Ej.: 50760000000">
+  <p class="small">Escribe el número con código de país, sin + ni espacios. Si lo dejas vacío, WhatsApp te permitirá elegir el contacto.</p>
+  <div class="row">
+    <button class="green" id="whatsapp">Enviar a WhatsApp</button>
+  </div>
+  <p id="result" class="small"></p>
+</section>
+</main>
+
+<script>
+const video = document.getElementById('video');
+const statusEl = document.getElementById('status');
+const numbersEl = document.getElementById('numbers');
+const resultEl = document.getElementById('result');
+const scanToggle = document.getElementById('scanToggle');
+
+let stream = null;
+let detector = null;
+let numbers = [];
+
+function render(){
+  numbersEl.innerHTML='';
+  if(!numbers.length){
+    numbersEl.innerHTML='<div class="small">Todavía no hay números.</div>';
+    return;
+  }
+  numbers.forEach((n,index)=>{
+    const row=document.createElement('div');
+    row.className='number-row';
+    const value=document.createElement('span');
+    value.textContent=n;
+    const del=document.createElement('button');
+    del.className='delete';
+    del.textContent='×';
+    del.title='Eliminar número';
+    del.onclick=()=>{ numbers.splice(index,1); render(); resultEl.textContent='Número eliminado.'; resultEl.className='small success'; };
+    row.appendChild(value); row.appendChild(del); numbersEl.appendChild(row);
+  });
+}
+
+let scanning=false;
+let scanTimer=null;
+let lastDetected='';
+let lastDetectedTime=0;
+
+function addNumbers(values){
+  let changed=false;
+  values.forEach(v=>{
+    const clean=String(v).replace(/[^0-9]/g,'');
+    if(!clean) return;
+    const now=Date.now();
+    if(clean===lastDetected && now-lastDetectedTime<2500) return;
+    lastDetected=clean; lastDetectedTime=now;
+    if(!numbers.includes(clean)){ numbers.push(clean); changed=true; }
+  });
+  if(changed){ 
+    render(); 
+    resultEl.textContent='¡Número ingresado con éxito!'; 
+    resultEl.className='small success';
