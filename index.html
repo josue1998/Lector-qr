@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#075E54">
+<title>Escáner de números</title>
+<style>
+:root{--green:#075E54;--border:#d7e0dc}
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#f3f6f5;color:#17221f}
+header{background:var(--green);color:#fff;padding:18px 16px;text-align:center}
+header h1{font-size:22px;margin:0 0 5px}header p{margin:0;font-size:13px;opacity:.9}
+main{max-width:640px;margin:auto;padding:14px}
+.card{background:white;border-radius:16px;padding:14px;margin-bottom:14px;box-shadow:0 2px 10px #0000000b}
+.camera{background:#101514;border-radius:12px;overflow:hidden;min-height:220px;display:flex;align-items:center;justify-content:center}
+video{display:block;width:100%;max-height:55vh;object-fit:contain}
+.placeholder{color:#d8e2de;text-align:center;padding:28px;line-height:1.5}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+button{border:0;border-radius:10px;padding:13px 14px;font-size:15px;font-weight:700;cursor:pointer;flex:1;min-width:125px}
+.primary{background:var(--green);color:#fff}.secondary{background:#e7efec;color:#153b33}.whatsapp{background:#25D366;color:#073d20}.danger{background:#fde8e7;color:#9b1c1c}
+button:disabled{opacity:.5;cursor:not-allowed}
+label{display:block;font-size:14px;font-weight:700;margin-bottom:7px}
+input,textarea{width:100%;font:inherit;padding:12px;border:1px solid var(--border);border-radius:10px;background:#fff}
+input{font-size:20px;font-weight:700;letter-spacing:1px}
+.small{font-size:12px;color:#5a6964;line-height:1.5}
+#status{font-size:13px;margin-top:10px;line-height:1.4;color:#43544e}
+#status.error{color:#b42318}#status.ok{color:#087443}
+#busy{display:none;margin-top:10px}
+ol{padding-left:28px;margin:12px 0}
+li{padding:8px 4px;border-bottom:1px solid #edf0ef;overflow-wrap:anywhere}
+.listnum{font-weight:700;font-size:17px}
+.item-actions{float:right;border:0;padding:5px 9px;min-width:0;flex:0 0 auto;font-size:12px}
+.counter{font-size:13px;color:#52625c}
+</style>
+</head>
+<body>
+<header><h1>Escáner de números</h1><p>Lee varios números y agrégalos a una lista</p></header>
+<main>
+<section class="card">
+  <div class="camera">
+    <video id="video" autoplay playsinline muted style="display:none"></video>
+    <div id="placeholder" class="placeholder">Pulsa <b>Activar cámara</b> y enfoca el número.</div>
+  </div>
+  <div class="row">
+    <button class="primary" id="startBtn">Activar cámara</button>
+    <button class="secondary" id="captureBtn" disabled>Capturar y leer</button>
+  </div>
+  <div id="busy">Reconociendo texto… espera unos segundos.</div>
+  <div id="status" role="status">La cámara requiere permiso y normalmente una página HTTPS.</div>
+</section>
+
+<section class="card">
+  <label for="number">Número leído o escrito</label>
+  <input id="number" type="text" inputmode="numeric" autocomplete="off" placeholder="Captura o escribe un número">
+  <div class="row">
+    <button class="primary" id="addBtn">＋ Agregar a la lista</button>
+    <button class="secondary" id="copyOneBtn">Copiar este número</button>
+  </div>
+  <p class="small">Después de cada lectura, revisa el número y pulsa “Agregar a la lista”. Repite el proceso para añadir todos los que necesites.</p>
+</section>
+
+<section class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+    <b>Lista de números</b><span class="counter" id="counter">0 números</span>
+  </div>
+  <ol id="numberList"><li id="empty" class="small">Todavía no has agregado números.</li></ol>
+  <div class="row">
+    <button class="secondary" id="copyListBtn">Copiar lista completa</button>
+    <button class="whatsapp" id="waBtn">Enviar lista a WhatsApp</button>
+  </div>
+  <div class="row">
+    <button class="danger" id="clearBtn">Vaciar lista</button>
+  </div>
+  <p class="small">Los números repetidos no se agregan dos veces. La lista se conserva mientras esta página permanezca abierta.</p>
+</section>
+
+<section class="card">
+  <label for="message">Mensaje opcional para WhatsApp</label>
+  <textarea id="message" rows="2" placeholder="Ej.: Números registrados:"></textarea>
+</section>
+<section class="card">
+  <b>Consejos</b>
+  <p class="small">Enfoca un número a la vez, evita reflejos y revisa cada lectura. Se requiere conexión a Internet para cargar el reconocimiento OCR. Si la cámara no abre al tocar el archivo directamente, debes abrirlo desde una página HTTPS.</p>
+</section>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script>
+const video=document.getElementById('video'), placeholder=document.getElementById('placeholder');
+const startBtn=document.getElementById('startBtn'), captureBtn=document.getElementById('captureBtn');
+const statusEl=document.getElementById('status'), numberInput=document.getElementById('number');
+const busy=document.getElementById('busy'), listEl=document.getElementById('numberList');
+const counter=document.getElementById('counter');
+let stream=null, worker=null, numbers=[];
+
+function status(msg,type=''){statusEl.textContent=msg;statusEl.className=type}
+function updateList(){
+  listEl.innerHTML='';
+  if(numbers.length===0){const li=document.createElement('li');li.className='small';li.textContent='Todavía no has agregado números.';listEl.appendChild(li);}
+  numbers.forEach((n,i)=>{
+    const li=document.createElement('li');
+    const span=document.createElement('span');span.className='listnum';span.textContent=n;
+    const del=document.createElement('button');del.className='danger item-actions';del.textContent='Eliminar';
+    del.addEventListener('click',()=>{numbers.splice(i,1);updateList();});
+    li.appendChild(span);li.appendChild(del);listEl.appendChild(li);
+  });
+  counter.textContent=numbers.length+(numbers.length===1?' número':' números');
+}
+async function copyText(text){
+  try{await navigator.clipboard.writeText(text);return true;}
+  catch(e){
+    const temp=document.createElement('textarea');temp.value=text;temp.style.position='fixed';temp.style.opacity='0';
+    document.body.appendChild(temp);temp.select();const ok=document.execCommand('copy');temp.remove();return ok;
+  }
+}
+startBtn.addEventListener('click',async()=>{
+  try{
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)throw new Error('El navegador requiere una página HTTPS para acceder a la cámara.');
+    if(stream)stream.getTracks().forEach(t=>t.stop());
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
+    video.srcObject=stream;video.style.display='block';placeholder.style.display='none';await video.play();
+    captureBtn.disabled=false;startBtn.textContent='Reiniciar cámara';status('Cámara activa. Enfoca un número y pulsa “Capturar y leer”.','ok');
+  }catch(e){status('No se pudo abrir la cámara: '+(e.message||e)+' Revisa los permisos y usa HTTPS.','error');}
+});
+captureBtn.addEventListener('click',async()=>{
+  if(!video.videoWidth){status('La cámara todavía no está lista.','error');return;}
+  if(!window.Tesseract){status('No se pudo cargar el lector OCR. Comprueba tu conexión a Internet.','error');return;}
+  captureBtn.disabled=true;busy.style.display='block';status('Analizando imagen…');
+  try{
+    const canvas=document.createElement('canvas');canvas.width=video.videoWidth;canvas.height=video.videoHeight;
+    const ctx=canvas.getContext('2d');ctx.drawImage(video,0,0,canvas.width,canvas.height);
+    const img=ctx.getImageData(0,0,canvas.width,canvas.height);
+    for(let i=0;i<img.data.length;i+=4){const g=.299*img.data[i]+.587*img.data[i+1]+.114*img.data[i+2];const v=g>150?255:0;img.data[i]=img.data[i+1]=img.data[i+2]=v;}
+    ctx.putImageData(img,0,0);
+    if(!worker)worker=await Tesseract.createWorker('eng');
+    const result=await worker.recognize(canvas);
+    const text=result.data.text||'';
+    // Busca secuencias numéricas en varias líneas y devuelve la más larga.
+    const found=text.match(/\d[\d\s\-./]{1,}\d|\d{3,}/g)||[];
+    const cleaned=found.map(s=>s.replace(/\D/g,'')).filter(s=>s.length>=3);
+    if(cleaned.length){
+      cleaned.sort((a,b)=>b.length-a.length);
+      numberInput.value=cleaned[0];
+      status('Número detectado. Revísalo y pulsa “Agregar a la lista”.','ok');
+    }else status('No se detectaron números claros. Acércate y vuelve a intentarlo.','error');
+  }catch(e){status('Error al reconocer: '+(e.message||e),'error');}
+  finally{busy.style.display='none';captureBtn.disabled=false;}
+});
+document.getElementById('addBtn').addEventListener('click',()=>{
+  const n=numberInput.value.trim().replace(/\s+/g,'');
+  if(!n){status('Primero captura o escribe un número.','error');return;}
+  if(!/\d/.test(n)){status('El texto no parece contener un número.','error');return;}
+  if(numbers.includes(n)){status('Ese número ya está en la lista: '+n,'error');return;}
+  numbers.push(n);updateList();numberInput.value='';status('Número agregado a la lista. Puedes escanear el siguiente.','ok');
+});
+document.getElementById('copyOneBtn').addEventListener('click',async()=>{
+  const n=numberInput.value.trim();if(!n){status('No hay ningún número en el campo para copiar.','error');return;}
+  status(await copyText(n)?'Número copiado: '+n:'No se pudo copiar. Selecciona el número manualmente.','ok');
+});
+document.getElementById('copyListBtn').addEventListener('click',async()=>{
+  if(!numbers.length){status('La lista está vacía.','error');return;}
+  const ok=await copyText(numbers.join('\n'));status(ok?'Lista completa copiada.':'No se pudo copiar la lista.','ok');
+});
+document.getElementById('waBtn').addEventListener('click',()=>{
+  if(!numbers.length){status('Agrega al menos un número a la lista.','error');return;}
+  const intro=document.getElementById('message').value.trim();
+  const text=(intro?intro+'\n':'')+numbers.join('\n');
+  window.open('https://wa.me/?text='+encodeURIComponent(text),'_blank','noopener');
+});
+document.getElementById('clearBtn').addEventListener('click',()=>{
+  if(!numbers.length){status('La lista ya está vacía.');return;}
+  if(confirm('¿Seguro que quieres borrar todos los números?')){numbers=[];updateList();status('Lista vaciada.');}
+});
+window.addEventListener('pagehide',()=>{if(stream)stream.getTracks().forEach(t=>t.stop());});
+updateList();
+</script>
+</body>
+</html>
